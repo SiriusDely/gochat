@@ -94,9 +94,15 @@ func singleHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if upgrade == false {
-		if r.URL.Path == "/" {
-			chatTemplate.Execute(w, listenAddr)
+		if r.Method != "GET" {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
 		}
+		if r.URL.Path != "/" {
+			http.NotFound(w, r)
+			return
+		}
+		chatTemplate.Execute(w, listenAddr)
 		return
 	}
 
