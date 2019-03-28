@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <script>
+     var websocket;
+     var output;
+     var input;
+     var send;
+
+     function init() {
+       websocket = new WebSocket("ws://{{.}}/socket");
+       websocket.onmessage = onMessage;
+       websocket.onclose = onClose;
+
+       output = document.getElementById("output");
+       input = document.getElementById("input");
+       send = document.getElementById("send");
+       send.onclick = handleClickSend;
+       input.onkeydown = function(e) {
+         if (e.keyCode === 13) {
+           send.click();
+         }
+       };
+     }
+
+     window.addEventListener("load", init);
+
+     function onMessage(m) {
+       // console.log("Received:", m.data);
+       var li = document.createElement("li");
+       li.innerHTML = m.data;
+       output.appendChild(li);
+     }
+
+     function onClose() {
+      var li = document.createElement("li");
+      li.innerHTML = "Connection closed.";
+      output.appendChild(li);
+     }
+
+     function handleClickSend(e) {
+       websocket.send(input.value);
+       input.value = "";
+     }
+    </script>
+  </head>
+  <body>
+    <input id="input" type="text" placeholder="type your message" autofocus/>
+    <input id="send" type="button" value="Send" />
+    <ul id="output">
+    </ul>
+  </body>
+</html>
