@@ -2,8 +2,8 @@ package main
 
 import (
 	"fmt"
+	"github.com/gorilla/websocket"
 	"github.com/siriusdely/gochat/markov"
-	"golang.org/x/net/websocket"
 	"html/template"
 	"io"
 	"log"
@@ -17,8 +17,7 @@ const listenAddr = "localhost:4000"
 func main() {
 	go netListen()
 
-	http.HandleFunc("/", rootHandler)
-	http.Handle("/socket", websocket.Handler(socketHandler))
+	http.HandleFunc("/", singleHandler)
 
 	err := http.ListenAndServe(listenAddr, nil)
 	if err != nil {
@@ -44,29 +43,82 @@ func netListen() {
 
 type socket struct {
 	io.Reader
-	io.Writer
+	io.WriteCloser
 	done chan bool
 }
 
 func (s socket) Close() error {
+	log.Println("socket Close")
+	s.WriteCloser.Close()
 	s.done <- true
 	return nil
 }
 
-var chain = markov.NewChain(2) // 2-word prefixes
+var upgrader = websocket.Upgrader{}
 
-func socketHandler(ws *websocket.Conn) {
-	r, w := io.Pipe()
+type conn struct {
+	*websocket.Conn
+}
+
+func (c *conn) Read(b []byte) (int, error) {
+	_, message, err := c.Conn.ReadMessage()
+	if err != nil {
+		log.Println("Read err:", err)
+		return 0, err
+	}
+	copy(b, []byte(message))
+	return len(message), nil
+}
+
+func (c *conn) Write(b []byte) (int, error) {
+	err := c.Conn.WriteMessage(websocket.TextMessage, b)
+	if err != nil {
+		log.Println("Write err:", err)
+		return 0, err
+	}
+	return len(b), nil
+}
+
+func (c *conn) Close() error {
+	log.Println("conn Close")
+	return c.Conn.Close()
+}
+
+func singleHandler(w http.ResponseWriter, r *http.Request) {
+	upgrade := false
+	for _, header := range r.Header["Upgrade"] {
+		if header == "websocket" {
+			upgrade = true
+			break
+		}
+	}
+
+	if upgrade == false {
+		if r.URL.Path == "/" {
+			chatTemplate.Execute(w, listenAddr)
+		}
+		return
+	}
+
+	c, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Print("Upgrade err:", err)
+		return
+	}
+
+	r2, w2 := io.Pipe()
+	c2 := &conn{c}
 	go func() {
-		_, err := io.Copy(io.MultiWriter(w, chain), ws)
-		w.CloseWithError(err)
+		_, err := io.Copy(io.MultiWriter(w2, chain), c2)
+		w2.CloseWithError(err)
 	}()
 
-	s := socket{r, ws, make(chan bool)}
+	s := socket{r2, c2, make(chan bool)}
 	go match(s)
 	<-s.done
 }
 
+var chain = markov.NewChain(2) // 2-word prefixes
 var partner = make(chan io.ReadWriteCloser)
 
 func match(c io.ReadWriteCloser) {
@@ -92,7 +144,7 @@ func chat(a, b io.ReadWriteCloser) {
 	go cp(b, a, errc)
 
 	if err := <-errc; err != nil {
-		log.Println(err)
+		log.Println("chat err:", err)
 	}
 	a.Close()
 	b.Close()
@@ -126,8 +178,4 @@ func (b bot) speak() {
 	b.out.Write([]byte(msg))
 }
 
-func rootHandler(w http.ResponseWriter, r *http.Request) {
-	rootTemplate.Execute(w, listenAddr)
-}
-
-var rootTemplate, _ = template.ParseFiles("templates/chat.html")
+var chatTemplate, _ = template.ParseFiles("templates/chat.html")

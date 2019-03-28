@@ -9,7 +9,7 @@
      var send;
 
      function init() {
-       websocket = new WebSocket("ws://{{.}}/socket");
+       websocket = new WebSocket("ws://{{.}}");
        websocket.onmessage = onMessage;
        websocket.onclose = onClose;
 
